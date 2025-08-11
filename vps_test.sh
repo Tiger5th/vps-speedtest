@@ -1,18 +1,16 @@
 #!/bin/bash
-# VPS 千兆带宽深度测速脚本 (官方二进制版)
-# 支持自动下载官方 Speedtest CLI 二进制，测速，结束后清理
+# VPS 千兆带宽深度测速脚本 (官方二进制直装版)
+# 仅下载执行，不依赖系统包管理器，运行完删除
 
 set -e
 
 SPEEDTEST_BIN="/usr/local/bin/speedtest"
 
-clean_up() {
-    echo ">>> 清理残留..."
-    rm -f "$SPEEDTEST_BIN"
-    echo "清理完成。"
-}
-
 install_speedtest() {
+    if command -v speedtest >/dev/null 2>&1; then
+        echo "检测到已有 speedtest 命令，优先使用系统命令"
+        return 0
+    fi
     echo ">>> 下载官方 Ookla Speedtest CLI 二进制..."
     ARCH=$(uname -m)
     if [[ "$ARCH" == "x86_64" ]]; then
@@ -20,7 +18,7 @@ install_speedtest() {
     elif [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
         ARCH="arm64"
     else
-        echo "暂不支持此架构: $ARCH"
+        echo "不支持的架构: $ARCH"
         exit 1
     fi
 
@@ -30,25 +28,36 @@ install_speedtest() {
     mv "$TMPDIR/speedtest" "$SPEEDTEST_BIN"
     chmod +x "$SPEEDTEST_BIN"
     rm -rf "$TMPDIR"
-    echo "安装完成。"
-}
-
-get_server_id() {
-    "$SPEEDTEST_BIN" --list | grep -i "$1" | head -n 1 | awk '{print $1}'
+    echo "下载并安装完成"
 }
 
 run_speedtest() {
     local server_name="$1"
     local server_id
-    server_id=$(get_server_id "$server_name")
+
+    if command -v speedtest >/dev/null 2>&1; then
+        SPEEDTEST_CMD="speedtest"
+    else
+        SPEEDTEST_CMD="$SPEEDTEST_BIN"
+    fi
+
+    server_id=$($SPEEDTEST_CMD --list | grep -i "$server_name" | head -n 1 | awk '{print $1}')
     if [ -n "$server_id" ]; then
         echo ">>> $server_name"
-        "$SPEEDTEST_BIN" --server "$server_id"
+        $SPEEDTEST_CMD --server "$server_id"
     else
         echo ">>> $server_name"
         echo "找不到可用节点"
     fi
     echo "--------------------------------"
+}
+
+cleanup() {
+    if [ -f "$SPEEDTEST_BIN" ]; then
+        echo ">>> 删除临时 speedtest 二进制..."
+        rm -f "$SPEEDTEST_BIN"
+        echo "删除完成"
+    fi
 }
 
 main() {
@@ -74,9 +83,9 @@ main() {
     run_speedtest "Singapore"
 
     echo "===== 测试结束 ====="
-    echo "说明：千兆口的 Speedtest 峰值应接近 940 Mbps，显著低于此值说明可能是虚标或限速"
+    echo "峰值理论约940Mbps，低于明显可能限速或虚标"
 
-    clean_up
+    cleanup
 }
 
 main
