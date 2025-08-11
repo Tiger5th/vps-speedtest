@@ -1,48 +1,49 @@
 #!/bin/bash
-# VPS 千兆带宽深度测速脚本 (Ookla 官方 CLI 版)
-# 作者: Tiger5th 改进 by ChatGPT
-# 功能: 自动测速，支持广州三网、香港本地、国际节点，并清理残留
+# VPS 千兆带宽深度测速脚本 (官方二进制版)
+# 支持自动下载官方 Speedtest CLI 二进制，测速，结束后清理
 
 set -e
 
-# 检查并卸载旧版 speedtest-cli (Python 版)
-remove_old_speedtest() {
-    echo ">>> 检查并卸载旧版 speedtest-cli..."
-    if command -v speedtest-cli >/dev/null 2>&1; then
-        pip uninstall -y speedtest-cli >/dev/null 2>&1 || true
-        apt remove -y speedtest-cli >/dev/null 2>&1 || true
-        yum remove -y speedtest-cli >/dev/null 2>&1 || true
-    fi
+SPEEDTEST_BIN="/usr/local/bin/speedtest"
+
+clean_up() {
+    echo ">>> 清理残留..."
+    rm -f "$SPEEDTEST_BIN"
+    echo "清理完成。"
 }
 
-# 安装官方 Ookla Speedtest CLI
-install_ookla_speedtest() {
-    echo ">>> 安装 Ookla Speedtest CLI..."
-    if [ -f /etc/debian_version ]; then
-        curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
-        apt-get install -y speedtest
-    elif [ -f /etc/redhat-release ]; then
-        curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.rpm.sh | bash
-        yum install -y speedtest
+install_speedtest() {
+    echo ">>> 下载官方 Ookla Speedtest CLI 二进制..."
+    ARCH=$(uname -m)
+    if [[ "$ARCH" == "x86_64" ]]; then
+        ARCH="x86_64"
+    elif [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
+        ARCH="arm64"
     else
-        echo "暂不支持的系统，请手动安装官方 Ookla CLI"
+        echo "暂不支持此架构: $ARCH"
         exit 1
     fi
+
+    TMPDIR=$(mktemp -d)
+    curl -sL "https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-linux-${ARCH}.tgz" -o "$TMPDIR/speedtest.tgz"
+    tar -xzf "$TMPDIR/speedtest.tgz" -C "$TMPDIR"
+    mv "$TMPDIR/speedtest" "$SPEEDTEST_BIN"
+    chmod +x "$SPEEDTEST_BIN"
+    rm -rf "$TMPDIR"
+    echo "安装完成。"
 }
 
-# 获取服务器 ID
 get_server_id() {
-    speedtest --list | grep -i "$1" | head -n 1 | awk '{print $1}'
+    "$SPEEDTEST_BIN" --list | grep -i "$1" | head -n 1 | awk '{print $1}'
 }
 
-# 测速函数
 run_speedtest() {
     local server_name="$1"
     local server_id
     server_id=$(get_server_id "$server_name")
     if [ -n "$server_id" ]; then
         echo ">>> $server_name"
-        speedtest --server "$server_id"
+        "$SPEEDTEST_BIN" --server "$server_id"
     else
         echo ">>> $server_name"
         echo "找不到可用节点"
@@ -50,15 +51,12 @@ run_speedtest() {
     echo "--------------------------------"
 }
 
-# 主程序
 main() {
     echo "===== VPS 千兆带宽深度测速 ====="
     echo "测试时间: $(date)"
     echo "--------------------------------"
 
-    # 卸载旧版本并安装新版本
-    remove_old_speedtest
-    install_ookla_speedtest
+    install_speedtest
 
     echo "===== 广州三网测速 ====="
     run_speedtest "广州 电信"
@@ -78,12 +76,7 @@ main() {
     echo "===== 测试结束 ====="
     echo "说明：千兆口的 Speedtest 峰值应接近 940 Mbps，显著低于此值说明可能是虚标或限速"
 
-    echo ">>> 清理残留..."
-    apt-get remove --purge -y speedtest >/dev/null 2>&1 || yum remove -y speedtest >/dev/null 2>&1
-    apt-get autoremove -y >/dev/null 2>&1 || yum autoremove -y >/dev/null 2>&1
-    rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list >/dev/null 2>&1
-    rm -rf /var/cache/apt/archives/* /var/cache/yum >/dev/null 2>&1
-    echo "所有临时文件和软件已清理完毕。"
+    clean_up
 }
 
 main
